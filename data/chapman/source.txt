@@ -1,0 +1,8 @@
+Original Chapman ECG data
+Source: https://figshare.com/collections/ChapmanECG/4560497/2
+Raw file: ECGData.zip
+Download: https://ndownloader.figshare.com/files/15651326
+License: CC0 1.0
+Publisher MD5: 2bf32d649e30c5648ba4a5938a1398f8
+Downloaded file MD5: verified against publisher
+Record count in archive: 10646 CSV files

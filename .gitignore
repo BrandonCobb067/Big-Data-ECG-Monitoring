@@ -1,0 +1,16 @@
+# Datasets stay local; see README for download links.
+*.zip
+*.part
+*.class
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Python generated files and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env

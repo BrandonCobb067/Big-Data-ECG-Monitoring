@@ -1,0 +1,11 @@
+Dataset: original Chapman ECG
+Raw records checked: 10646
+Accepted: 10632
+Rejected: 14
+Values filled: 0
+Flat leads flagged: 49
+Sampling rate: 500 Hz
+Leads: 12
+Samples per record: 5000
+Units retained: microvolts (uV)
+Elapsed seconds: 145

@@ -1,0 +1,12 @@
+Dataset: MIT-BIH Arrhythmia Database 1.0.0
+Raw records: 48
+Accepted MLII recordings: 46
+Skipped/rejected: 2
+Full ten-second fragments: 8280
+Short tail fragments retained: 46
+Values filled: 0
+Flat leads flagged: 0
+Sampling rate: 360 Hz
+Units: microvolts (uV)
+WFDB checksums and initial samples verified for accepted recordings
+Elapsed seconds: 14

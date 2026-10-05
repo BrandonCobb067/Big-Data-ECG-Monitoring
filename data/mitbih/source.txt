@@ -1,0 +1,10 @@
+MIT-BIH Arrhythmia Database version 1.0.0
+George Moody and Roger Mark
+https://physionet.org/content/mitdb/1.0.0/
+Download: https://physionet.org/static/published-projects/mitdb/mit-bih-arrhythmia-database-1.0.0.zip
+License: Open Data Commons Attribution License v1.0
+Raw ZIP SHA256 (locally computed): 47b26926927c11bd9174154d367c811afc1b186f650f8a205931ca8c520f0a87
+Publisher SHA256 manifest files verified: 704
+All 48 raw waveform/header/annotation sets included.
+Derived MLII CSVs: decoded, converted to microvolts and segmented by this project.
+All 8326 cleaned CSVs independently compared against raw waveform values; 29900000 samples matched exactly.
