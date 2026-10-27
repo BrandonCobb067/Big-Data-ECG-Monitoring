@@ -1,3 +1,7 @@
+# NOT UP TO DATE!! DO NOT RUN THIS
+## Scripts for downloading datasets coming soon
+
+
 # Big Data ECG Monitoring
 
 Python preparation of two ECG datasets: original Chapman ECG and MIT-BIH Arrhythmia Database. Each dataset is read, cleaned and saved separately. MIT-BIH replaces the restricted IEEE 744-fragment dataset; these are newly generated fragments, not the original 744 records.

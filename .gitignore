@@ -7,7 +7,9 @@
 Thumbs.db
 .idea/
 .vscode/
-data/
+
+data/*
+!data/.gitkeep
 
 # Python generated files and local environments
 __pycache__/
