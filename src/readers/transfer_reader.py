@@ -3,6 +3,7 @@ import re
 from pathlib import Path
 from src.readers.base_reader import BaseReader
 from src.models.ecg_record import ECGRecord
+from src.readers.utils import get_sorted_zip_entries
 
 class TransferReader(BaseReader):
     def __init__(self, raw_zip_path: str, sample_rate: int = 250):
@@ -16,7 +17,7 @@ class TransferReader(BaseReader):
         Streams 10-second chunks from the IEEE Transfer Learning zip archive ignoring noisy 'X' folders and extracting data from '3-TXT files'
         """
         with zipfile.ZipFile(self.raw_zip_path, "r") as source:
-            entries = sorted(source.infolist(), key=lambda entry: entry.filename)
+            entries = get_sorted_zip_entries(source)
             
             for entry in entries:
                 filename = entry.filename

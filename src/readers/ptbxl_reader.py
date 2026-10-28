@@ -3,6 +3,7 @@ import zipfile
 from pathlib import Path
 from src.readers.base_reader import BaseReader
 from src.models.ecg_record import ECGRecord
+from src.readers.utils import get_sorted_zip_entries
 
 class PTBXLReader(BaseReader):
     LEADS = [
@@ -25,7 +26,7 @@ class PTBXLReader(BaseReader):
 
         with zipfile.ZipFile(self.raw_zip_path, "r") as source:
             # Sort to ensure consistent processing order
-            entries = sorted(source.infolist(), key=lambda entry: entry.filename)
+            entries = get_sorted_zip_entries(source)
 
             for entry in entries:
                 if entry.is_dir() or target_folder not in entry.filename or not entry.filename.endswith(".dat"):

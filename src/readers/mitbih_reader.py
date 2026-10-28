@@ -1,27 +1,13 @@
 from pathlib import Path
 from src.readers.base_reader import BaseReader
 from src.models.ecg_record import ECGRecord
+from src.readers.utils import decode212, digital_to_microvolts, clean_wfdb_header
 
 class MitBihReader (BaseReader):
     LEADS = ["MLII"]
 
     def __init__ (self, raw_dir_path: str):
         self.raw_dir = Path(raw_dir_path)
-
-    def _decode212(self, data: bytes, frame: int, channel: int) -> int:
-        """Decodes Format 212 which packs two 12 bit values into three bytes"""
-        offset = frame * 3
-        middle_byte = data[offset + 1]
-
-        if channel == 0:
-            value = data[offset] | ((middle_byte & 15) << 8)
-        else:
-            value = data [offset + 2] | ((middle_byte & 240) << 4)
-
-        if value >= 2048:
-            value -= 4096
-
-        return value
 
     def yield_chunks(self):
         """
@@ -32,8 +18,7 @@ class MitBihReader (BaseReader):
             record_id = hea_file.stem
 
             # Read the header file
-            with hea_file.open ("r", encoding="ascii") as f:
-                lines = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+            lines = clean_wfdb_header(hea_file)
             if not lines:
                 continue
 
@@ -72,12 +57,9 @@ class MitBihReader (BaseReader):
 
             # Extract the digital values and scale them to microvolts (uV)
             for sample in range (sample_count):
-                digital_value = self._decode212(packed_samples, sample, selected_channel)
-                if digital_value == -2048:
-                    samples.append([float("nan")])
-                else:
-                    value = (digital_value - baseline) / gain * 1000.0
-                    samples.append([value])
+                digital_value = decode212(packed_samples, sample, selected_channel)
+                value = digital_to_microvolts(digital_value, baseline, gain)
+                samples.append([value])
 
             # Slice into 10-second chunks (3600 samples at 360 Hz)
             for start in range(0, sample_count, 3600):
