@@ -8,8 +8,12 @@ Thumbs.db
 .idea/
 .vscode/
 
+# Maintains an empty folder for data in the github but doesn't upload actual data in the folder from local machine
 data/*
 !data/.gitkeep
+
+# Ignores structure determining script 
+ziptree.sh
 
 # Python generated files and local environments
 __pycache__/
