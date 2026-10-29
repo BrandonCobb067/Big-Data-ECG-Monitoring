@@ -3,7 +3,7 @@ import zipfile
 from pathlib import Path
 from src.readers.base_reader import BaseReader
 from src.models.ecg_record import ECGRecord
-from src.readers.utils import get_sorted_zip_entries
+from src.readers.utils import extract_record_id, get_sorted_zip_entries
 
 class PTBXLReader(BaseReader):
     LEADS = [
@@ -33,8 +33,7 @@ class PTBXLReader(BaseReader):
                     continue
 
                 # Extract ID and strip the _hr.dat extension
-                filename = entry.filename.rsplit("/", 1)[-1]
-                record_id = filename.replace("_hr.dat", "")
+                record_id = extract_record_id(entry.filename, "_hr.dat")
 
                 with source.open(entry) as dat_file:
                     raw_bytes = dat_file.read()

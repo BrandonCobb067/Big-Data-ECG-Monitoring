@@ -30,17 +30,36 @@ def digital_to_microvolts(digital_value: int, baseline: int, gain: float) -> flo
 
     return (digital_value - baseline) / gain * 1000.0
 
-def clean_wfdb_header(hea_filepath: Path) -> List[str]:
+def read_zip_wfdb_header(hf) -> List [str]:
     """
-    Reads a .hea text file, strips surrounding whitespace, and removes comment lines.
-    Returns a list of cleaned configuration lines.
+    Reads a WFDB .hea file directly from a zipfile byte stream.
+    Decodes from ASCII, strips whitespace, and removes comment lines.
     """
-    with open(hea_filepath, "r", encoding="ascii") as f:
-        lines = [line.strip() for line in f if line.strip() and not line.startswith("#")]
-    return lines
+    return [
+        line.decode ("ascii").strip()
+        for line in hf
+        if line.strip() and not line.decode("ascii").startswith("#")
+    ]
 
 def get_sorted_zip_entries(zip_source: zipfile.ZipFile) -> List[zipfile.ZipInfo]:
     """
     Returns a deterministically sorted list of files inside a ZIP archive to ensure consistent streaming and parallel partitioning.
     """
     return sorted(zip_source.infolist(), key = lambda entry: entry.filename)
+
+def extract_record_id(filepath: str, extension: str) -> str:
+    """
+    Extracts the base record ID from a nested zip filepath by removing directories and the file extension.
+    """
+    return filepath.rsplit("/", 1)[-1].replace(extension, "")
+
+def decode_212_signal(packed_samples: bytes, sample_count: int, channel: int, baseline: int, gain: float) -> List[List[float]]:
+    """
+    Decodes an entire Format 212 byte stream into a list of microvolt samples.
+    """
+    samples = []
+    for sample_idx in range(sample_count):
+        digital_value = decode212(packed_samples, sample_idx, channel)
+        value = digital_to_microvolts(digital_value, baseline, gain)
+        samples.append([value])
+    return samples

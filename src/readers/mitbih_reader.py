@@ -1,76 +1,89 @@
+import zipfile
 from pathlib import Path
 from src.readers.base_reader import BaseReader
 from src.models.ecg_record import ECGRecord
-from src.readers.utils import decode212, digital_to_microvolts, clean_wfdb_header
+from src.readers.utils import get_sorted_zip_entries, extract_record_id, read_zip_wfdb_header, decode_212_signal
 
 class MitBihReader (BaseReader):
     LEADS = ["MLII"]
 
-    def __init__ (self, raw_dir_path: str):
-        self.raw_dir = Path(raw_dir_path)
+    def __init__ (self, raw_zip_path: str):
+        self.raw_zip_path = Path(raw_zip_path)
 
     def yield_chunks(self):
         """
-        Stream 10-second (3600 sample) chunks from the MIT-BIH directory.
+        Stream 10-second (3600 sample) chunks from the MIT-BIH zip archive.
         """
-        # Recursively find all .hea files in nested physionet.org structure
-        for hea_file in sorted(self.raw_dir.rglob("*.hea")):
-            record_id = hea_file.stem
 
-            # Read the header file
-            lines = clean_wfdb_header(hea_file)
-            if not lines:
-                continue
+        with zipfile.ZipFile(self.raw_zip_path, "r") as source:
+            # Sort to ensure consistent processing order
+            entries = get_sorted_zip_entries(source)
 
-            header = lines[0].split()
-            sample_count = int(header[3])
+            # Iterate through the zip archive looking for header files 
+            for entry in entries:
+                if entry.is_dir() or not entry.filename.endswith(".hea"):
+                    continue
 
-            # Verify the 2-channel 360Hz format 
-            if header[1] != "2" or header [2] != "360":
-                continue
+                # Extract ID and strip the .hea extension and path
+                record_id = extract_record_id(entry.filename, ".hea")
 
-            fields = [lines[1].split(), lines[2].split()]
-            selected_channel = -1
+                # Read the header file directly from the zip in memory
+                # Read the header file directly from the zip in memory
+                with source.open(entry) as f:
+                    lines = read_zip_wfdb_header(f)
 
-            # Locate the MLII lead
-            for channel in range(2):
-                lead_name = fields[channel][-1]
-                if lead_name == "MLII":
-                    selected_channel = channel
+                if not lines:
+                    continue
 
-            if selected_channel < 0:
-                continue # Skip records without the MLII lead
+                header = lines[0].split()
+                sample_count = int(header[3])
 
-            # Find and read the corresponding binary .dat file
-            dat_file = hea_file.with_suffix(".dat")
-            if not dat_file.exists():
-                continue
+                # Verify the 2-channel 360Hz format 
+                if header[1] != "2" or header [2] != "360":
+                    continue
 
-            packed_samples = dat_file.read_bytes()
+                fields = [lines[1].split(), lines[2].split()]
+                selected_channel = -1
 
-            if len(packed_samples) != sample_count * 3:
-                continue
+                # Locate the MLII lead
+                for channel in range(2):
+                    lead_name = fields[channel][-1]
+                    if lead_name == "MLII":
+                        selected_channel = channel
 
-            gain = float(fields[selected_channel][2])
-            baseline = int(fields[selected_channel][4])
-            samples = []
+                if selected_channel < 0:
+                    continue # Skip records without the MLII lead
 
-            # Extract the digital values and scale them to microvolts (uV)
-            for sample in range (sample_count):
-                digital_value = decode212(packed_samples, sample, selected_channel)
-                value = digital_to_microvolts(digital_value, baseline, gain)
-                samples.append([value])
+                # Find and read the corresponding binary .dat file
+                dat_filename = entry.filename.replace(".hea", ".dat")
+                try:
+                    dat_entry = source.getinfo(dat_filename)
+                except KeyError:
+                    continue
 
-            # Slice into 10-second chunks (3600 samples at 360 Hz)
-            for start in range(0, sample_count, 3600):
-                length = min(3600, sample_count - start)
+                with source.open(dat_entry) as dat_file:
+                    packed_samples = dat_file.read()
 
-                # Yield standard full chunks (skip short tail fragments)
-                if length == 3600:
-                    yield ECGRecord(
-                        record_id=f"{record_id}_{start:07d}",
-                        sample_rate=360,
-                        leads=self.LEADS.copy(),
-                        units="uV",
-                        samples=samples[start:start + length]
-                    )
+                if len(packed_samples) != sample_count * 3:
+                    continue
+
+                gain = float(fields[selected_channel][2])
+                baseline = int(fields[selected_channel][4])
+                samples = []
+
+                # Extract the digital values and scale them to microvolts (uV)
+                samples = decode_212_signal(packed_samples, sample_count, selected_channel, baseline, gain)
+
+                # Slice into 10-second chunks (3600 samples at 360 Hz)
+                for start in range(0, sample_count, 3600):
+                    length = min(3600, sample_count - start)
+
+                    # Yield standard full chunks (skip short tail fragments)
+                    if length == 3600:
+                        yield ECGRecord(
+                            record_id=f"{record_id}_{start:07d}",
+                            sample_rate=360,
+                            leads=self.LEADS.copy(),
+                            units="uV",
+                            samples=samples[start:start + length]
+                        )

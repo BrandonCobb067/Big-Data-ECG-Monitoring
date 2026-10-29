@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 from src.readers.base_reader import BaseReader
 from src.models.ecg_record import ECGRecord
-from src.readers.utils import get_sorted_zip_entries
+from src.readers.utils import extract_record_id, get_sorted_zip_entries
 
 class TransferReader(BaseReader):
     def __init__(self, raw_zip_path: str, sample_rate: int = 250):
@@ -31,7 +31,7 @@ class TransferReader(BaseReader):
                     continue
 
                 # Extract the base filename (e.g., 's2r3') to serve as the record_id
-                base_name = filename.rsplit("/", 1)[-1].replace(".txt", "")
+                base_name = extract_record_id(filename, ".txt")
 
                 with source.open(entry) as input_file:
                     samples = []
