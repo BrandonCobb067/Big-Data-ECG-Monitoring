@@ -1,4 +1,6 @@
-"""Filtering and waveform reconstruction shared by streaming and replay."""
+"""
+NOT ACTIVE
+Filtering and waveform reconstruction shared by streaming and replay."""
 import struct
 import zlib
 

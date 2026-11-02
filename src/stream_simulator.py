@@ -4,7 +4,6 @@ Asynchronous orchestrator to simulate concurrent vital edge nodes transmitting E
 
 import asyncio
 import json
-import socket
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
@@ -27,7 +26,7 @@ async def virtual_edge_node(node_id: int, queue: asyncio.Queue, pipeline_mode: s
     Simulates a single concurrent IoT device processing and transmitting data
     """
     # Establish a non-blocking connection to Spark's TCP Receiver
-    reader, writer = await asyncio.open_connection(
+    _, writer = await asyncio.open_connection(
         config.SPARK_RECEIVER_IP,
         config.SPARK_RECEIVER_PORT  
     )
@@ -35,7 +34,7 @@ async def virtual_edge_node(node_id: int, queue: asyncio.Queue, pipeline_mode: s
     try:
         while True:
             # Pull the next 10-second chunk from the thread-pool bridge
-            ecg_record = await queue.get()
+            ecg_record: ECGRecord = await queue.get()
 
             if ecg_record is None:
                 queue.task_done()
@@ -66,7 +65,7 @@ async def virtual_edge_node(node_id: int, queue: asyncio.Queue, pipeline_mode: s
 
             # Serialize and push payload over raw TCP socket to Spark
             serialized_data = json.dumps(payload,cls=NumpyEncoder) + "\n"
-            writer.write(serialized_data.encode('utf8'))
+            writer.write(serialized_data.encode('utf-8'))
             await writer.drain()
 
             queue.task_done()
@@ -76,3 +75,73 @@ async def virtual_edge_node(node_id: int, queue: asyncio.Queue, pipeline_mode: s
     finally:
         writer.close()
         await writer.wait_closed()
+
+def blocking_reader_bridge(reader_instance: BaseReader, queue: asyncio.Queue, loop: asyncio.AbstractEventLoop):
+    """
+    Runs in a background thread to prevent zip-file I/O from blocking the async event loop
+    """
+    for chunk in reader_instance.yield_chunks():
+        # Safely push the chunk into the asyncio queue from the background thread
+        asyncio.run_coroutine_threadsafe(queue.put(chunk), loop)
+
+    # Send termination signals for the edge nodes
+    for _ in range(config.SIMULATED_DEVICES_COUNT):
+        asyncio.run_coroutine_threadsafe(queue.put(None), loop)
+
+
+async def main(reader_instance, pipeline_mode: str):
+    """
+    The main asyncio engine bridging readers to the Spark cluster.
+    """
+    queue = asyncio.Queue(maxsize=config.SIMULATED_DEVICES_COUNT * 2)
+    loop = asyncio.get_running_loop()
+
+    # 1. Initialize a ThreadPoolExecutor to run the blocking yield_chunks() generators
+    executor = ThreadPoolExecutor(max_workers=1)
+    loop.run_in_executor(executor, blocking_reader_bridge, reader_instance, queue, loop)
+
+    # 2. Spin up hundereds of asynchronous virtual_edge_node coroutines
+    tasks = []
+    for i in range(config.SIMULATED_DEVICES_COUNT):
+        task = asyncio.create_task(virtual_edge_node(i, queue, pipeline_mode))
+        tasks.append(task)
+
+    # Wait for all nodes to finish processing the queue
+    await asyncio.gather(*tasks)
+    executor.shutdown(wait=True)
+
+if __name__ == "__main__":
+    import argparse
+    from src.readers.chapman_reader import ChapmanReader
+    from src.readers.mitbih_reader import MitBihReader
+    from src.readers.peco_reader import PecoReader
+    from src.readers.transfer_reader import TransferReader
+    from src.readers.ptbxl_reader import PTBXLReader
+
+    parser = argparse.ArgumentParser(description="ECG Stream Simulator Orchestrator")
+    parser.add_argument('--dataset', type=str, required=True, 
+                        choices=['chapman', 'mitbih', 'peco', 'transfer', 'ptbxl'],
+                        help="Select the dataset reader to instantiate.")
+    parser.add_argument('--pipeline', type=str, required=True,
+                        choices=['A', 'B'],
+                        help="Select Pipeline A (Raw Baseline) or Pipeline B (Edge-Assisted).")
+
+    args = parser.parse_args()
+
+    # Dictionary mapping CLI arguments to the specific reader classes
+    reader_map = {
+        'chapman': ChapmanReader,
+        'mitbih': MitBihReader,
+        'peco': PecoReader,
+        'transfer': TransferReader,
+        'ptbxl': PTBXLReader
+    }
+
+    # Instantiate the selected reader
+    selected_reader_class = reader_map[args.dataset]
+    reader_instance = selected_reader_class()
+
+    print(f"Starting Stream Simulator | Dataset: {args.dataset.upper()} | Pipeline: {args.pipeline}")
+
+    # Trigger the main asyncio event loop
+    asyncio.run(main(reader_instance, pipeline_mode=args.pipeline))

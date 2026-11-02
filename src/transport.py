@@ -1,4 +1,6 @@
-"""Shared framing and stateful edge preprocessing."""
+"""
+NOT ACTIVE
+Shared framing and stateful edge preprocessing."""
 import socket
 import struct
 import zlib

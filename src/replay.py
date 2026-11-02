@@ -1,3 +1,4 @@
+# NOT ACTIVE
 # Allow both python src/replay.py and python -m src.replay from the project root.
 import sys
 from pathlib import Path
