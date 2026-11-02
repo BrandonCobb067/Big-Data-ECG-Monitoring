@@ -2,7 +2,7 @@ import zipfile
 from pathlib import Path
 from src.readers.base_reader import BaseReader
 from src.models.ecg_record import ECGRecord
-from src.readers.utils import extract_record_id, get_sorted_zip_entries
+from utils import extract_record_id, get_sorted_zip_entries
 
 class ChapmanReader(BaseReader):
     LEADS = [

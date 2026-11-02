@@ -15,6 +15,10 @@ data/*
 # Ignores structure determining script 
 ziptree.sh
 
+
+#Ignores virtual environment
+heart/
+
 # Python generated files and local environments
 __pycache__/
 *.py[cod]

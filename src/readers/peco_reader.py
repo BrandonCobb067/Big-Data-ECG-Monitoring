@@ -2,7 +2,7 @@ import zipfile
 from pathlib import Path
 from src.readers.base_reader import BaseReader
 from src.models.ecg_record import ECGRecord
-from src.readers.utils import get_sorted_zip_entries, decode_212_signal, extract_record_id, read_zip_wfdb_header
+from utils import get_sorted_zip_entries, decode_212_signal, extract_record_id, read_zip_wfdb_header
 
 class PecoReader(BaseReader):
     def __init__(self, raw_zip_path: str):
