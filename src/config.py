@@ -4,7 +4,7 @@ Centralized configurations for the ECG Pipeline Simulator
 
 # SIMULATION & EDGE PARAMETERS
 # Number of concurrent virtual devices to simulate in the asyncio loop
-SIMULATED_DEVICES_COUNT = 500
+SIMULATED_DEVICES_COUNT = 50
 
 # Standardized Length of the ECG segments being yielded
 CHUNK_DURATION_SECONDS = 10

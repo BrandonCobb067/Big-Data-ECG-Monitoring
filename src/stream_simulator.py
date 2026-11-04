@@ -4,6 +4,7 @@ Asynchronous orchestrator to simulate concurrent vital edge nodes transmitting E
 
 import asyncio
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
@@ -11,6 +12,12 @@ import src.config as config
 from src.readers.base_reader import BaseReader
 from src.models.ecg_record import ECGRecord
 from src.edge.edge_processor import process_edge_chunk
+
+#Shared dictionary to track metrics across asynchronous coroutines
+benchmarks = {
+    "total_bytes": 0,
+    "total_chunks": 0
+}
 
 class NumpyEncoder(json.JSONEncoder):
     """Custom encoder to serialize NumPy arrays to JSON."""
@@ -65,7 +72,12 @@ async def virtual_edge_node(node_id: int, queue: asyncio.Queue, pipeline_mode: s
 
             # Serialize and push payload over raw TCP socket to Spark
             serialized_data = json.dumps(payload,cls=NumpyEncoder) + "\n"
-            writer.write(serialized_data.encode('utf-8'))
+            encoded_data = serialized_data.encode('utf-8')
+
+            benchmarks["total_bytes"] += len(encoded_data)
+            benchmarks["total_chunks"] += 1
+            
+            writer.write(encoded_data)
             await writer.drain()
 
             queue.task_done()
@@ -89,7 +101,7 @@ def blocking_reader_bridge(reader_instance: BaseReader, queue: asyncio.Queue, lo
         asyncio.run_coroutine_threadsafe(queue.put(None), loop)
 
 
-async def main(reader_instance, pipeline_mode: str):
+async def main(reader_instance, pipeline_mode: str, dataset_name: str):
     """
     The main asyncio engine bridging readers to the Spark cluster.
     """
@@ -100,6 +112,9 @@ async def main(reader_instance, pipeline_mode: str):
     executor = ThreadPoolExecutor(max_workers=1)
     loop.run_in_executor(executor, blocking_reader_bridge, reader_instance, queue, loop)
 
+    # Start benchmark timer
+    start_time = time.perf_counter()
+
     # 2. Spin up hundereds of asynchronous virtual_edge_node coroutines
     tasks = []
     for i in range(config.SIMULATED_DEVICES_COUNT):
@@ -109,6 +124,12 @@ async def main(reader_instance, pipeline_mode: str):
     # Wait for all nodes to finish processing the queue
     await asyncio.gather(*tasks)
     executor.shutdown(wait=True)
+
+    # End benchmark timer
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
+
+    print(f"BENCHMARK_RESULT|{dataset_name}|{pipeline_mode}|{benchmarks['total_chunks']}|{benchmarks['total_bytes']}|{elapsed_time:.2f}")
 
 if __name__ == "__main__":
     import argparse
@@ -137,11 +158,21 @@ if __name__ == "__main__":
         'ptbxl': PTBXLReader
     }
 
+    # Dictionary mapping datasets to their zipfile locations
+    path_map = {
+        'chapman': 'data/chapman/raw/ECGData.zip',
+        'mitbih': 'data/mitbih/raw/mit-bih-dataset.zip',
+        'peco': 'data/ieee_peco/raw/peco-dataset.zip',
+        'transfer': 'data/ieee_transfer_learning/raw/DataFall.zip',
+        'ptbxl': 'data/ptbxl/raw/ptb-xl-dataset.zip'
+    }
     # Instantiate the selected reader
     selected_reader_class = reader_map[args.dataset]
-    reader_instance = selected_reader_class()
+    dataset_path = path_map[args.dataset]
+
+    reader_instance = selected_reader_class(dataset_path)
 
     print(f"Starting Stream Simulator | Dataset: {args.dataset.upper()} | Pipeline: {args.pipeline}")
 
     # Trigger the main asyncio event loop
-    asyncio.run(main(reader_instance, pipeline_mode=args.pipeline))
+    asyncio.run(main(reader_instance, pipeline_mode=args.pipeline, dataset_name=args.dataset))
