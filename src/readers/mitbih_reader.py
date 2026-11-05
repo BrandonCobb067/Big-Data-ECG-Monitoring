@@ -2,7 +2,7 @@ import zipfile
 from pathlib import Path
 from src.readers.base_reader import BaseReader
 from src.models.ecg_record import ECGRecord
-from utils import get_sorted_zip_entries, extract_record_id, read_zip_wfdb_header, decode_212_signal
+from src.utils import get_sorted_zip_entries, extract_record_id, read_zip_wfdb_header, decode_212_signal
 
 class MitBihReader (BaseReader):
     LEADS = ["MLII"]

@@ -1,13 +1,14 @@
+import re
 import zipfile
 from pathlib import Path
 from src.readers.base_reader import BaseReader
 from src.models.ecg_record import ECGRecord
-from utils import get_sorted_zip_entries, decode_212_signal, extract_record_id, read_zip_wfdb_header
+from src.utils import get_sorted_zip_entries, extract_record_id, read_zip_wfdb_header, decode212, digital_to_microvolts
 
 class PecoReader(BaseReader):
     def __init__(self, raw_zip_path: str):
         # Initialization for path to compressed zip
-        self.raw_zip_path = Path (raw_zip_path)
+        self.raw_zip_path = Path(raw_zip_path)
 
     def yield_chunks(self):
         """Streams 10 second chunks from the PECO WFDB files from the zip archive"""
@@ -28,7 +29,6 @@ class PecoReader(BaseReader):
                     continue
 
                 # Read and clean header lines directly from zip byte stream
-                # Read and clean header lines directly from zip byte stream
                 with source.open(entry) as hf:
                     lines = read_zip_wfdb_header(hf)
 
@@ -37,15 +37,36 @@ class PecoReader(BaseReader):
    
                 # Parse the primary header line
                 header = lines[0].split()
+                
+                # Ensure header has enough columns (Name, Signals, SampleRate, SampleCount)
+                if len(header) < 4:
+                    continue
+                    
                 sample_rate = int(header[2])
                 sample_count = int(header[3])
-                chunk_size = sample_rate * 10 # 10 seconds of data
+                chunk_size = sample_rate * 10 
+
+                if len(lines) < 2:
+                    continue
 
                 # Parse the channel specification line (assuming single-lead ECG for PECO)
                 channel_info = lines[1].split()
-                gain = float(channel_info[2])
-                baseline = int(channel_info[4])
-                lead_name = channel_info[-1]
+
+                if len(channel_info) < 3:
+                    continue
+
+                raw_gain = channel_info[2].strip()
+                gain = float(re.split(r'[\(/]', raw_gain)[0]) 
+
+                if len(channel_info) > 4:
+                    baseline = int(channel_info[4])
+                else:
+                    baseline = 0
+
+                if len(channel_info) > 8:
+                    lead_name = channel_info[-1]
+                else:
+                    lead_name = "Unknown"
 
                 if gain <= 0:
                     continue
@@ -54,15 +75,29 @@ class PecoReader(BaseReader):
                 with source.open(entries[dat_filename]) as df:
                     packed_samples = df.read()
 
-                if len(packed_samples) < sample_count * 1.5: #1.5 bytes per sample in 212
+                if len(packed_samples) < sample_count * 1.5: 
                     continue
 
-                # Decode the entire record and convert to microvolts
-                full_samples = decode_212_signal(packed_samples, sample_count, 0, baseline, gain)
+                # Decode the 1-channel Format 212 signal
+                # Two consecutive samples of the same channel are packed in one 3-byte frame
+                full_samples = []
+                for sample_idx in range(sample_count):
+                    frame = sample_idx // 2
+                    sub_channel = sample_idx % 2
+                    
+                    # Protect against out of range errors from malformed sample counts
+                    if frame * 3 + 2 >= len(packed_samples):
+                        break
+                        
+                    digital_value = decode212(packed_samples, frame, sub_channel)
+                    value = digital_to_microvolts(digital_value, baseline, gain)
+                    full_samples.append([value])
+
+                actual_sample_count = len(full_samples)
 
                 # Yield in 10-second chunks
-                for start in range(0, sample_count, chunk_size):
-                    length = min(chunk_size, sample_count - start)
+                for start in range(0, actual_sample_count, chunk_size):
+                    length = min(chunk_size, actual_sample_count - start)
 
                     # Only yield full 10-second chunks to maintain standardizations
                     if length == chunk_size:
@@ -73,5 +108,4 @@ class PecoReader(BaseReader):
                             leads=[lead_name],
                             units="uV",
                             samples=full_samples[start: start + length]
-
                         )

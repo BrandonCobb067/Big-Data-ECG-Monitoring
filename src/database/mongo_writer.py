@@ -40,4 +40,4 @@ def spark_mongo_sink(df: Any, epoch_id: int) -> None:
     The sink function to be passed into Spark's `foreachBatch`.
     Routes the distributed DataFrame to the worker-level write function.
     """
-    df.foreachPartition(lambda partition: write_partition_to_mongo(partition, epoch_id))
+    df.repartition(50).foreachPartition(lambda partition: write_partition_to_mongo(partition, epoch_id))

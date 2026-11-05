@@ -17,6 +17,7 @@ ziptree.sh
 
 # Ignores results folder
 results/
+spark_checkpoints/
 
 #Ignores virtual environment
 heart/

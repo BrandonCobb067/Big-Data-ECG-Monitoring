@@ -28,10 +28,14 @@ def z_score_normalize_udf(data_series: pd.Series) -> pd.Series:
     def normalize_array(matrix):
         if matrix is None:
             return None
-        arr = np.array(matrix)
+            
+        # Convert PySpark's 1D object array of nested lists into a proper 2D numeric array
+        arr = np.array(matrix.tolist(), dtype=float)
+        
         # Calculate mean and standard deviation along the time axis
         mean = np.mean(arr, axis=0)
-        std = np.std(arr,axis=0)
+        std = np.std(arr, axis=0)
+        
         # Prevent division by zero
         std = np.where(std == 0, 1e-6, std)
         normalized = (arr - mean) / std
@@ -46,22 +50,25 @@ def start_streaming_job():
     spark = SparkSession.builder \
             .appName("ECG_Distributed_Processor") \
             .master("local[*]") \
+            .config("spark.driver.memory", "4g") \
+            .config ("spark.executor.memory", "4g") \
             .getOrCreate()
 
     # Suppress excessive logging
     spark.sparkContext.setLogLevel("WARN")
 
-    # 1. Initialize PySpark Structured Streaming listening on the designated TCP port
+    # 1. Read from Kafka and apply memory throttle
     raw_stream = spark.readStream \
-        .format("socket") \
-        .option("host", config.SPARK_RECEIVER_IP) \
-        .option("port", config.SPARK_RECEIVER_PORT) \
+        .format("kafka") \
+        .option("kafka.bootstrap.servers", "localhost:9092") \
+        .option ("subscribe", "ecg_topic") \
+        .option("maxOffsetsPerTrigger", 5000) \
         .load()
 
-    # 2. Deserialize the incoming network traffic
-    parsed_stream = raw_stream.select(
-        from_json(col("value"), payload_schema).alias("parsed")
-    ).select("parsed.*")
+    # 2. Kafka values arrive as binary. Cast to string before parsing JSON.
+    parsed_stream = raw_stream.selectExpr("Cast(value AS STRING)") \
+        .select(from_json(col("value"), payload_schema).alias("parsed")) \
+        .select("parsed.*")
 
     # 3. Execute parallelized statistical transformations
     processed_stream = parsed_stream.withColumn(
@@ -73,6 +80,7 @@ def start_streaming_job():
     query = processed_stream.writeStream \
         .foreachBatch(spark_mongo_sink) \
         .outputMode("append") \
+        .option("checkpointLocation", "./spark_checkpoints") \
         .start()
 
     query.awaitTermination()

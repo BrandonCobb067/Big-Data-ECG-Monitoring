@@ -5,6 +5,7 @@ Asynchronous orchestrator to simulate concurrent vital edge nodes transmitting E
 import asyncio
 import json
 import time
+from aiokafka import AIOKafkaProducer
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
@@ -28,16 +29,11 @@ class NumpyEncoder(json.JSONEncoder):
             return float(obj)
         return super().default(obj)
 
-async def virtual_edge_node(node_id: int, queue: asyncio.Queue, pipeline_mode: str):
+async def virtual_edge_node(node_id: int, queue: asyncio.Queue, pipeline_mode: str, producer: AIOKafkaProducer):
     """
-    Simulates a single concurrent IoT device processing and transmitting data
+    Simulates a single concurrent IoT device processing and transmitting data via Kafka
     """
-    # Establish a non-blocking connection to Spark's TCP Receiver
-    _, writer = await asyncio.open_connection(
-        config.SPARK_RECEIVER_IP,
-        config.SPARK_RECEIVER_PORT  
-    )
-
+    
     try:
         while True:
             # Pull the next 10-second chunk from the thread-pool bridge
@@ -71,34 +67,37 @@ async def virtual_edge_node(node_id: int, queue: asyncio.Queue, pipeline_mode: s
                 payload["transmitted_fs"] = target_fs
 
             # Serialize and push payload over raw TCP socket to Spark
-            serialized_data = json.dumps(payload,cls=NumpyEncoder) + "\n"
+            serialized_data = json.dumps(payload, cls=NumpyEncoder)
             encoded_data = serialized_data.encode('utf-8')
 
             benchmarks["total_bytes"] += len(encoded_data)
             benchmarks["total_chunks"] += 1
             
-            writer.write(encoded_data)
-            await writer.drain()
+            await producer.send_and_wait("ecg_topic", encoded_data)
 
             queue.task_done()
 
     except Exception as e:
         print(f"Node {node_id} disconnected: {e}")
-    finally:
-        writer.close()
-        await writer.wait_closed()
 
 def blocking_reader_bridge(reader_instance: BaseReader, queue: asyncio.Queue, loop: asyncio.AbstractEventLoop):
     """
     Runs in a background thread to prevent zip-file I/O from blocking the async event loop
     """
-    for chunk in reader_instance.yield_chunks():
-        # Safely push the chunk into the asyncio queue from the background thread
-        asyncio.run_coroutine_threadsafe(queue.put(chunk), loop)
-
-    # Send termination signals for the edge nodes
-    for _ in range(config.SIMULATED_DEVICES_COUNT):
-        asyncio.run_coroutine_threadsafe(queue.put(None), loop)
+    try:
+        for chunk in reader_instance.yield_chunks():
+            # .result() blocks the thread if the async queue is full, preventing memory leaks
+            future = asyncio.run_coroutine_threadsafe(queue.put(chunk), loop)
+            future.result() 
+    except Exception as e:
+        print(f"\nCRITICAL READER ERROR: {e}")
+    finally:
+        # Guarantee termination signals are sent to edge nodes even on crash
+        for _ in range(config.SIMULATED_DEVICES_COUNT):
+            try:
+                asyncio.run_coroutine_threadsafe(queue.put(None), loop).result()
+            except Exception:
+                pass
 
 
 async def main(reader_instance, pipeline_mode: str, dataset_name: str):
@@ -107,6 +106,10 @@ async def main(reader_instance, pipeline_mode: str, dataset_name: str):
     """
     queue = asyncio.Queue(maxsize=config.SIMULATED_DEVICES_COUNT * 2)
     loop = asyncio.get_running_loop()
+
+    # Initialize Kafka Producer
+    producer = AIOKafkaProducer(bootstrap_servers='localhost:9092')
+    await producer.start()
 
     # 1. Initialize a ThreadPoolExecutor to run the blocking yield_chunks() generators
     executor = ThreadPoolExecutor(max_workers=1)
@@ -118,13 +121,15 @@ async def main(reader_instance, pipeline_mode: str, dataset_name: str):
     # 2. Spin up hundereds of asynchronous virtual_edge_node coroutines
     tasks = []
     for i in range(config.SIMULATED_DEVICES_COUNT):
-        task = asyncio.create_task(virtual_edge_node(i, queue, pipeline_mode))
+        task = asyncio.create_task(virtual_edge_node(i, queue, pipeline_mode, producer))
         tasks.append(task)
 
     # Wait for all nodes to finish processing the queue
     await asyncio.gather(*tasks)
     executor.shutdown(wait=True)
 
+    await producer.stop()
+    
     # End benchmark timer
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
